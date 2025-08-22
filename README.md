@@ -1,6 +1,6 @@
-# Pipecat Voice AI Agent - AWS ECS Deployment
+# Pipecat Voice AI Agent - AWS Cloud Deployment
 
-A production-ready containerized deployment of the Pipecat Voice AI Agent on AWS ECS, featuring both WebRTC and Twilio phone integration with AWS Nova Sonic for natural voice conversations.
+A production-ready containerized deployment of the Pipecat Voice AI Agent on AWS, featuring both WebRTC and Twilio phone integration with AWS Nova Sonic for natural voice conversations. Supports both ECS and EKS deployment options.
 
 ## What is This Project?
 
@@ -9,9 +9,10 @@ This project provides a complete AWS cloud deployment solution for Pipecat, an o
 - **WebRTC Voice Chat**: Browser-based voice conversations using Daily.co
 - **Phone Integration**: Twilio-powered phone calls with bidirectional audio
 - **AWS Nova Sonic**: Advanced text-to-speech and speech-to-text using AWS Bedrock
-- **Production Infrastructure**: Complete AWS ECS deployment with CDK
+- **Production Infrastructure**: Complete AWS deployment with CDK (ECS or EKS)
 - **Monitoring & Logging**: CloudWatch integration with health checks
 - **Security**: AWS Secrets Manager, IAM roles, and container security best practices
+- **Kubernetes Support**: EKS deployment with Fargate and Network Load Balancer
 
 ## Server Applications
 
@@ -58,7 +59,7 @@ Specialized server for Twilio phone integration with Nova Sonic:
 ## Project Structure
 
 ```
-pipecat-ecs-deployment/
+pipecat-cloud-deployment/
 ├── 📁 aws/                    # AWS configuration files
 │   ├── policies/              # IAM policies for ECS tasks
 │   └── task-definitions/      # ECS task definitions
@@ -69,10 +70,13 @@ pipecat-ecs-deployment/
 │   ├── Dockerfile.phone       # Phone service container
 │   ├── docker-compose.test.yml
 │   └── scripts/               # Docker build scripts
-├── 📁 infrastructure/         # AWS CDK infrastructure code
+├── 📁 infrastructure/         # AWS CDK infrastructure code (ECS)
 │   ├── lib/                   # CDK stack definitions
 │   ├── deploy.sh              # Infrastructure deployment script
 │   └── DEPLOYMENT_GUIDE.md    # Detailed deployment guide
+├── 📁 infrastructure/-eks/    # AWS CDK infrastructure code (EKS)
+│   ├── lib/                   # EKS CDK stack definitions
+│   └── pipecat-eks-stack.ts   # EKS cluster configuration
 ├── 📁 scripts/                # Deployment and utility scripts
 │   ├── build-and-push.sh      # Build and push to ECR
 │   ├── deploy-service.sh      # Deploy ECS service
@@ -82,6 +86,7 @@ pipecat-ecs-deployment/
 ├── bot.py                     # Core Pipecat bot logic
 ├── server.py                  # Production WebRTC server
 ├── server_clean.py            # Phone service server
+├── pipecat-phone-service.yaml # Kubernetes deployment manifest
 └── requirements.txt           # Python dependencies
 ```
 
@@ -129,6 +134,11 @@ twilio                # Twilio integration for phone service
 
 ## Complete Deployment Guide
 
+Choose between ECS (container orchestration) or EKS (Kubernetes) deployment based on your needs:
+
+- **ECS**: Simpler setup, managed container orchestration
+- **EKS**: Kubernetes-native, more flexibility and control
+
 ### 1. Prerequisites
 
 Ensure you have the following installed and configured:
@@ -144,13 +154,18 @@ python3 --version      # Python 3.10+
 # Install CDK globally
 npm install -g aws-cdk
 
+# For EKS deployment, also install kubectl
+kubectl version --client
+
 # Configure AWS credentials
 aws configure
 ```
 
 ### 2. Deploy AWS Infrastructure (CDK)
 
-The infrastructure deployment creates all AWS resources needed:
+Choose your deployment platform:
+
+#### Option A: ECS Deployment (Recommended for simplicity)
 
 ```bash
 # Navigate to infrastructure directory
@@ -160,14 +175,13 @@ cd infrastructure
 npm install
 
 # Deploy infrastructure (creates ECS cluster, ECR, ALB, etc.)
-./deploy.sh --environment test --region eu-north-1
+./deploy.sh --environment test --region us-east-1
 
 # For production with custom VPC
-./deploy.sh --environment prod --custom-vpc --region eu-north-1
+./deploy.sh --environment prod --custom-vpc --region us-east-1
 ```
 
-**What gets created:**
-
+**ECS Resources Created:**
 - ECS Cluster with Fargate capacity
 - ECR repositories for container images
 - Application Load Balancer with health checks
@@ -175,6 +189,41 @@ npm install
 - IAM roles with least-privilege permissions
 - CloudWatch log groups
 - Secrets Manager integration
+
+#### Option B: EKS Deployment (Kubernetes-native)
+
+```bash
+# Navigate to EKS infrastructure directory
+cd infrastructure/-eks
+
+# Install CDK dependencies
+npm install
+
+# Deploy EKS infrastructure
+cdk deploy PipecatEksStack --parameters environment=test --parameters useDefaultVpc=false
+
+# Configure kubectl to connect to your cluster
+aws eks update-kubeconfig --region us-east-1 --name pipecat-eks-cluster-test
+```
+
+**EKS Setup Details:**
+- **Region**: us-east-1
+- **Node Type**: t3.medium instances
+- **Kubernetes Version**: v1.31 (CDK managed)
+- **Container Runtime**: containerd://1.7.27
+- **OS**: Amazon Linux 2023.7.20250512
+- **Architecture**: amd64 (x86_64)
+- **Network Flow**: NLB (TLS Listener) → Target Group → k8s Pod
+
+**EKS Resources Created:**
+- EKS Cluster with Fargate profiles
+- ECR repositories (reused from ECS if exists)
+- Network Load Balancer with TLS termination
+- VPC with public/private subnets
+- IAM service accounts with IRSA
+- AWS Load Balancer Controller
+- CloudWatch log groups for EKS
+- Kubernetes namespace: `pipecat`
 
 ### 3. Configure Secrets
 
@@ -204,7 +253,9 @@ aws secretsmanager list-secrets --query 'SecretList[?contains(Name, `pipecat`)].
 
 ### 4. Build and Deploy Containers
 
-#### Deploy WebRTC Service (server.py)
+#### For ECS Deployment
+
+##### Deploy WebRTC Service (server.py)
 
 ```bash
 # Build and push main WebRTC container to ECR
@@ -214,7 +265,7 @@ aws secretsmanager list-secrets --query 'SecretList[?contains(Name, `pipecat`)].
 ./scripts/deploy-service.sh -e test -t latest
 ```
 
-#### Deploy Phone Service (server_clean.py)
+##### Deploy Phone Service (server_clean.py)
 
 ```bash
 # Build and push phone service container
@@ -224,9 +275,47 @@ aws secretsmanager list-secrets --query 'SecretList[?contains(Name, `pipecat`)].
 ./scripts/deployment/deploy-phone-service.sh -e test -t latest
 ```
 
+#### For EKS Deployment
+
+##### Build and Push Container Images
+
+```bash
+# Build and push both services to ECR
+./scripts/build-and-push.sh -e test -t latest
+./scripts/build-phone-service.sh -e test -t latest
+```
+
+##### Deploy to Kubernetes
+
+```bash
+# Create the pipecat namespace
+kubectl create namespace pipecat
+
+# Apply the Kubernetes deployment manifest
+kubectl apply -f pipecat-phone-service.yaml -n pipecat
+
+# Verify deployment
+kubectl get pods -n pipecat
+kubectl get services -n pipecat
+kubectl get ingress -n pipecat
+```
+
+##### Monitor EKS Deployment
+
+```bash
+# Check pod status
+kubectl describe pods -n pipecat
+
+# View application logs
+kubectl logs -f deployment/pipecat-phone-service -n pipecat
+
+# Check service endpoints
+kubectl get endpoints -n pipecat
+```
+
 ### 5. Verify Deployment
 
-Check that your services are running:
+#### For ECS Deployment
 
 ```bash
 # Get application URLs
@@ -242,6 +331,25 @@ aws ecs describe-services \
 
 # View application logs
 aws logs tail /ecs/pipecat-voice-agent-test/application --follow
+```
+
+#### For EKS Deployment
+
+```bash
+# Get cluster information
+aws eks describe-cluster --name pipecat-eks-cluster-test --region us-east-1
+
+# Check pod status and get external IP
+kubectl get pods,services,ingress -n pipecat -o wide
+
+# Get Network Load Balancer endpoint
+kubectl get service pipecat-phone-service -n pipecat -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+
+# View application logs
+kubectl logs -f deployment/pipecat-phone-service -n pipecat
+
+# Check cluster nodes
+kubectl get nodes -o wide
 ```
 
 ### 6. Test Your Deployment
@@ -313,6 +421,8 @@ Readiness check for deployment strategies:
 
 ### AWS Environment Cleanup
 
+#### ECS Environment
+
 ```bash
 # Clean up test environment
 ./scripts/cleanup.sh aws -e test
@@ -320,6 +430,20 @@ Readiness check for deployment strategies:
 # Destroy CDK infrastructure
 cd infrastructure
 cdk destroy PipecatEcsStack-test
+```
+
+#### EKS Environment
+
+```bash
+# Delete Kubernetes resources
+kubectl delete namespace pipecat
+
+# Destroy EKS CDK infrastructure
+cd infrastructure/-eks
+cdk destroy PipecatEksStack
+
+# Clean up kubectl config (optional)
+kubectl config delete-context arn:aws:eks:us-east-1:ACCOUNT:cluster/pipecat-eks-cluster-test
 ```
 
 ### Complete Cleanup
@@ -333,6 +457,8 @@ cdk destroy PipecatEcsStack-test
 
 ### View Logs
 
+#### ECS Logs
+
 ```bash
 # Application logs
 aws logs tail /ecs/pipecat-voice-agent-test/application --follow
@@ -341,12 +467,32 @@ aws logs tail /ecs/pipecat-voice-agent-test/application --follow
 aws ecs describe-services --cluster pipecat-cluster-test --services pipecat-service-test
 ```
 
+#### EKS Logs
+
+```bash
+# Application logs
+kubectl logs -f deployment/pipecat-phone-service -n pipecat
+
+# Pod events
+kubectl describe pods -n pipecat
+
+# Cluster logs (if enabled)
+aws logs tail /aws/eks/pipecat-eks-cluster-test/cluster --follow
+```
+
 ### Common Issues
 
+#### General Issues
 - **Container fails to start**: Check secrets configuration and IAM permissions
 - **Health checks failing**: Verify environment variables and AWS connectivity
 - **Phone calls not working**: Check Twilio webhook configuration and Nova Sonic setup
 - **WebRTC not connecting**: Verify Daily.co API key and network connectivity
+
+#### EKS-Specific Issues
+- **Pods stuck in Pending**: Check Fargate profile selectors and node capacity
+- **LoadBalancer not getting external IP**: Verify AWS Load Balancer Controller installation
+- **IRSA permissions**: Ensure service account annotations match IAM role ARN
+- **Network connectivity**: Check security groups and NACLs for t3.medium nodes
 
 ## Documentation
 
@@ -359,12 +505,26 @@ For detailed information, see:
 
 ## Architecture
 
-This deployment provides a production-ready, scalable voice AI platform with:
+This deployment provides a production-ready, scalable voice AI platform with multiple deployment options:
 
-- **High Availability**: Multi-AZ deployment with load balancing
+### ECS Architecture
+- **High Availability**: Multi-AZ deployment with Application Load Balancer
 - **Security**: AWS IAM, Secrets Manager, and VPC isolation
 - **Monitoring**: CloudWatch logs, metrics, and health checks
-- **Scalability**: Auto-scaling ECS services
+- **Scalability**: Auto-scaling ECS services with Fargate
 - **Cost Optimization**: Fargate spot instances and efficient resource usage
 
-Perfect for building voice AI applications, phone assistants, and WebRTC-based conversational interfaces at scale.
+### EKS Architecture
+- **Kubernetes-Native**: Full Kubernetes API and ecosystem support
+- **Network Load Balancer**: TLS termination with target group routing to pods
+- **Fargate Serverless**: No EC2 instance management required
+- **IRSA Security**: IAM Roles for Service Accounts with least-privilege access
+- **Container Runtime**: containerd on Amazon Linux 2023 (t3.medium nodes)
+- **Monitoring**: CloudWatch Container Insights and Kubernetes-native logging
+
+### Network Flow (EKS)
+```
+Internet → NLB (TLS Listener) → Target Group → Kubernetes Pod (Fargate)
+```
+
+Perfect for building voice AI applications, phone assistants, and WebRTC-based conversational interfaces at scale with your choice of container orchestration platform.

@@ -21,8 +21,10 @@ wheels/
 *.egg
 MANIFEST
 
-# Virtual environments
+# Virtual environments and environment files
 .env
+.env.local
+.env.*.local
 .venv
 env/
 venv/
@@ -55,10 +57,15 @@ logs/
 
 # CDK
 infrastructure/node_modules/
+infrastructure/-eks/node_modules/
 infrastructure/cdk.out/
+infrastructure/-eks/cdk.out/
 infrastructure/cdk.context.json
+infrastructure/-eks/cdk.context.json
 infrastructure/lib/*.js 
-infrastructure/lib/*.d.ts 
+infrastructure/lib/*.d.ts
+infrastructure/-eks/lib/*.js 
+infrastructure/-eks/lib/*.d.ts 
 
 # Test outputs
 test-results/

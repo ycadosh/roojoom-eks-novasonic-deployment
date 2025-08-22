@@ -1,4 +1,4 @@
-name: Deploy Pipecat to AWS ECS
+name: Deploy Pipecat to AWS (ECS/EKS)
 
 on:
   push:
@@ -6,13 +6,13 @@ on:
       - main
       - develop
     paths:
-      - 'pipecat-ecs-deployment/**'
+      - '**'
       - '.github/workflows/deploy.yml'
   pull_request:
     branches:
       - main
     paths:
-      - 'pipecat-ecs-deployment/**'
+      - '**'
       - '.github/workflows/deploy.yml'
   workflow_dispatch:
     inputs:
@@ -25,6 +25,14 @@ on:
           - test
           - staging
           - prod
+      deployment_type:
+        description: 'Deployment platform'
+        required: true
+        default: 'ecs'
+        type: choice
+        options:
+          - ecs
+          - eks
       image_tag:
         description: 'Docker image tag'
         required: false
@@ -37,7 +45,7 @@ on:
         type: boolean
 
 env:
-  AWS_REGION: eu-north-1
+  AWS_REGION: us-east-1
   ECR_REPOSITORY_PREFIX: pipecat-voice-agent
 
 jobs:
@@ -57,19 +65,16 @@ jobs:
           python-version: '3.10'
 
       - name: Install dependencies
-        working-directory: pipecat-ecs-deployment
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Run basic syntax checks
-        working-directory: pipecat-ecs-deployment
         run: |
           python -m py_compile *.py
           echo "✅ Python syntax check passed"
 
       - name: Test Docker build
-        working-directory: pipecat-ecs-deployment
         run: |
           docker build -t pipecat-test:${{ github.sha }} .
           echo "✅ Docker build test passed"
@@ -144,7 +149,6 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build and push Docker image
-        working-directory: pipecat-ecs-deployment
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: ${{ env.ECR_REPOSITORY_PREFIX }}-${{ needs.setup.outputs.environment }}
@@ -187,7 +191,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Deploy to ECS
-        working-directory: pipecat-ecs-deployment
+        if: inputs.deployment_type == 'ecs' || inputs.deployment_type == ''
         env:
           ENVIRONMENT: ${{ needs.setup.outputs.environment }}
           IMAGE_TAG: ${{ needs.setup.outputs.image_tag }}
@@ -202,8 +206,31 @@ jobs:
             --tag $IMAGE_TAG \
             --update
 
+      - name: Deploy to EKS
+        if: inputs.deployment_type == 'eks'
+        env:
+          ENVIRONMENT: ${{ needs.setup.outputs.environment }}
+          IMAGE_TAG: ${{ needs.setup.outputs.image_tag }}
+        run: |
+          # Install kubectl
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+          
+          # Configure kubectl
+          aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name pipecat-eks-cluster-$ENVIRONMENT
+          
+          # Create namespace if it doesn't exist
+          kubectl create namespace pipecat --dry-run=client -o yaml | kubectl apply -f -
+          
+          # Update image in deployment manifest and apply
+          sed -i "s|image: .*|image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_PREFIX }}-$ENVIRONMENT:$IMAGE_TAG|" pipecat-phone-service.yaml
+          kubectl apply -f pipecat-phone-service.yaml -n pipecat
+          
+          # Wait for rollout
+          kubectl rollout status deployment/pipecat-phone-service -n pipecat --timeout=300s
+
       - name: Get deployment status
-        working-directory: pipecat-ecs-deployment
         env:
           ENVIRONMENT: ${{ needs.setup.outputs.environment }}
         run: |

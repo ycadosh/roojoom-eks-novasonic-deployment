@@ -1,6 +1,6 @@
 # GitHub Actions Setup Guide
 
-This guide helps you configure GitHub Actions for automated deployment of the Pipecat ECS application.
+This guide helps you configure GitHub Actions for automated deployment of the Pipecat Voice AI Agent on AWS (ECS or EKS).
 
 ## Required Repository Secrets
 
@@ -105,12 +105,17 @@ The AWS user/role needs the following permissions:
 
 ### Environment Setup
 
-The workflow supports multiple environments based on Git branches:
+The workflow supports multiple environments and deployment platforms:
 
+**Environment Mapping:**
 - **`main` branch** → `prod` environment
 - **`develop` branch** → `staging` environment
 - **Pull requests** → `test` environment (build only, no deployment)
 - **Manual dispatch** → User-specified environment
+
+**Deployment Platforms:**
+- **ECS**: Container orchestration with Fargate (default)
+- **EKS**: Kubernetes with Fargate profiles
 
 ### Environment Protection Rules
 
@@ -131,7 +136,7 @@ You can customize the workflow by modifying `.github/workflows/deploy.yml`:
 
 ```yaml
 env:
-  AWS_REGION: us-west-2 # Change from eu-north-1
+  AWS_REGION: us-west-2 # Change from us-east-1
 ```
 
 #### Modify Environment Mapping
