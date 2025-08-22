@@ -528,3 +528,4 @@ Internet → NLB (TLS Listener) → Target Group → Kubernetes Pod (Fargate)
 ```
 
 Perfect for building voice AI applications, phone assistants, and WebRTC-based conversational interfaces at scale with your choice of container orchestration platform.
+# roojoom-eks-novasonic-deployment
